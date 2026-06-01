@@ -35,9 +35,10 @@ MitsubishiHeatPump::MitsubishiHeatPump(
     PollingComponent{poll_interval}, // member initializers list
     hw_serial_{hw_serial}
 {
-    this->traits_.set_supports_action(true);
-    this->traits_.set_supports_current_temperature(true);
-    this->traits_.set_supports_two_point_target_temperature(false);
+    //this->traits_.set_supports_action(true);
+    //this->traits_.set_supports_current_temperature(true);
+    //this->traits_.set_supports_two_point_target_temperature(false);
+    this->traits_.set_supports_actions(true);
     this->traits_.set_visual_min_temperature(ESPMHP_MIN_TEMPERATURE);
     this->traits_.set_visual_max_temperature(ESPMHP_MAX_TEMPERATURE);
     this->traits_.set_visual_temperature_step(ESPMHP_TEMPERATURE_STEP);
@@ -127,7 +128,7 @@ void MitsubishiHeatPump::update_swing_horizontal(const std::string &swing) {
     this->horizontal_swing_state_ = swing;
 
     if (this->horizontal_vane_select_ != nullptr &&
-        this->horizontal_vane_select_->state != this->horizontal_swing_state_) {
+        this->horizontal_vane_select_->current_option() != this->horizontal_swing_state_) {
         this->horizontal_vane_select_->publish_state(
             this->horizontal_swing_state_);  // Set current horizontal swing
                                              // position
@@ -138,7 +139,7 @@ void MitsubishiHeatPump::update_swing_vertical(const std::string &swing) {
     this->vertical_swing_state_ = swing;
 
     if (this->vertical_vane_select_ != nullptr &&
-        this->vertical_vane_select_->state != this->vertical_swing_state_) {
+        this->vertical_vane_select_->current_option() != this->vertical_swing_state_) {
         this->vertical_vane_select_->publish_state(
             this->vertical_swing_state_);  // Set current vertical swing position
     }
@@ -148,7 +149,7 @@ void MitsubishiHeatPump::set_vertical_vane_select(
     select::Select *vertical_vane_select) {
     this->vertical_vane_select_ = vertical_vane_select;
     this->vertical_vane_select_->add_on_state_callback(
-        [this](const std::string &value, size_t index) {
+        [this](const std::string &value) {
             if (value == this->vertical_swing_state_) return;
             this->on_vertical_swing_change(value);
         });
@@ -158,7 +159,7 @@ void MitsubishiHeatPump::set_horizontal_vane_select(
     select::Select *horizontal_vane_select) {
       this->horizontal_vane_select_ = horizontal_vane_select;
       this->horizontal_vane_select_->add_on_state_callback(
-          [this](const std::string &value, size_t index) {
+          [this](const std::string &value) {
               if (value == this->horizontal_swing_state_) return;
               this->on_horizontal_swing_change(value);
           });
@@ -718,7 +719,7 @@ void MitsubishiHeatPump::setup() {
             TAG,
             "hw_serial(%p) is &Serial(%p)? %s",
             this->get_hw_serial_(),
-            &Serial,
+            &Serial0,
             YESNO((void *)this->get_hw_serial_() == (void *)&Serial)
     );
 
