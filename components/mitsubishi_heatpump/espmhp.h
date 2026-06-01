@@ -23,6 +23,7 @@
 #include <chrono>
 
 #include "HeatPump.h"
+#include "esphome/components/uart/uart.h"
 
 #ifndef ESPMHP_H
 #define ESPMHP_H
@@ -42,7 +43,9 @@ static const uint8_t ESPMHP_MAX_TEMPERATURE = 31; // degrees C,
 static const float   ESPMHP_TEMPERATURE_STEP = 0.5; // temperature setting step,
                                                     // in degrees C
 
-class MitsubishiHeatPump : public esphome::PollingComponent, public esphome::climate::Climate {
+class MitsubishiHeatPump : public esphome::PollingComponent,
+                           public esphome::climate::Climate,
+                           public esphome::uart::UARTDevice {
 
     public:
 
@@ -54,8 +57,7 @@ class MitsubishiHeatPump : public esphome::PollingComponent, public esphome::cli
          *   poll_interval: polling interval in milliseconds
          */
         MitsubishiHeatPump(
-            HardwareSerial* hw_serial,
-            uint32_t poll_interval=ESPMHP_POLL_INTERVAL_DEFAULT
+          uint32_t poll_interval=ESPMHP_POLL_INTERVAL_DEFAULT
         );
 
         // Print a banner with library information.
