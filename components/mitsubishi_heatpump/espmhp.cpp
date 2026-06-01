@@ -149,22 +149,24 @@ void MitsubishiHeatPump::set_vertical_vane_select(
     select::Select *vertical_vane_select) {
     this->vertical_vane_select_ = vertical_vane_select;
     this->vertical_vane_select_->add_on_state_callback(
-        [this](const std::string &value, size_t index) {
-            (void) index;
-            if (value == this->vertical_swing_state_) return;
-            this->on_vertical_swing_change(value);
+        [this](size_t index) {
+            auto value = this->vertical_vane_select_->at(index);
+            if (!value.has_value()) return;
+            if (*value == this->vertical_swing_state_) return;
+            this->on_vertical_swing_change(*value);
         });
 }
 
 void MitsubishiHeatPump::set_horizontal_vane_select(
     select::Select *horizontal_vane_select) {
-      this->horizontal_vane_select_ = horizontal_vane_select;
-      this->horizontal_vane_select_->add_on_state_callback(
-          [this](const std::string &value, size_t index) {
-              (void) index;
-              if (value == this->horizontal_swing_state_) return;
-              this->on_horizontal_swing_change(value);
-          });
+    this->horizontal_vane_select_ = horizontal_vane_select;
+    this->horizontal_vane_select_->add_on_state_callback(
+        [this](size_t index) {
+            auto value = this->horizontal_vane_select_->at(index);
+            if (!value.has_value()) return;
+            if (*value == this->horizontal_swing_state_) return;
+            this->on_horizontal_swing_change(*value);
+        });
 }
 
 void MitsubishiHeatPump::on_vertical_swing_change(const std::string &swing) {
