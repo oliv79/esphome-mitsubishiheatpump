@@ -29,22 +29,18 @@ using namespace esphome;
  *   poll_interval: polling interval in milliseconds
  */
 MitsubishiHeatPump::MitsubishiHeatPump(
-        HardwareSerial* hw_serial,
         uint32_t poll_interval
 ) :
-    PollingComponent{poll_interval}, // member initializers list
-    hw_serial_{hw_serial}
+    PollingComponent{poll_interval}
 {
     this->traits_.set_feature_flags(
-    climate::CLIMATE_SUPPORTS_ACTION |
-    climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE
+        climate::CLIMATE_SUPPORTS_ACTION |
+        climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE
     );
     this->traits_.set_visual_min_temperature(ESPMHP_MIN_TEMPERATURE);
     this->traits_.set_visual_max_temperature(ESPMHP_MAX_TEMPERATURE);
     this->traits_.set_visual_temperature_step(ESPMHP_TEMPERATURE_STEP);
 
-    // Assume a succesful connection was made to the ESPHome controller on
-    // launch.
     this->ping();
 }
 
