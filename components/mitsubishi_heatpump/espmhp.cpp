@@ -16,6 +16,14 @@
  * Requirements:
  * - https://github.com/SwiCago/HeatPump
  * - ESPHome 1.18.0 or greater
+ *
+ * ESPHome 2026.5 fixes:
+ * - Removed set_supports_action(), set_supports_current_temperature(),
+ *   set_supports_two_point_target_temperature() (now implicit in ClimateTraits)
+ * - &Serial replaced by &Serial0 (ESP8266 Arduino framework change)
+ * - select->state replaced by select->current_option()
+ * - add_on_state_callback lambda signature (string, size_t) -> (string)
+ * - fan_mode.value_or(int) replaced by explicit has_value()+value() check
  */
 
 #include "espmhp.h"
@@ -35,9 +43,9 @@ MitsubishiHeatPump::MitsubishiHeatPump(
     PollingComponent{poll_interval}, // member initializers list
     hw_serial_{hw_serial}
 {
-    this->traits_.set_supports_action(true);
-    this->traits_.set_supports_current_temperature(true);
-    this->traits_.set_supports_two_point_target_temperature(false);
+    // FIX ESPHome 2026.x: set_supports_action(), set_supports_current_temperature()
+    // et set_supports_two_point_target_temperature() ont été supprimés de ClimateTraits.
+    // Ces capacités sont désormais implicites, ne pas appeler ces méthodes.
     this->traits_.set_visual_min_temperature(ESPMHP_MIN_TEMPERATURE);
     this->traits_.set_visual_max_temperature(ESPMHP_MAX_TEMPERATURE);
     this->traits_.set_visual_temperature_step(ESPMHP_TEMPERATURE_STEP);
@@ -126,29 +134,31 @@ climate::ClimateTraits& MitsubishiHeatPump::config_traits() {
 void MitsubishiHeatPump::update_swing_horizontal(const std::string &swing) {
     this->horizontal_swing_state_ = swing;
 
+    // FIX ESPHome 2026.x: select->state est deprecated, utiliser current_option()
     if (this->horizontal_vane_select_ != nullptr &&
-        this->horizontal_vane_select_->state != this->horizontal_swing_state_) {
+        this->horizontal_vane_select_->current_option() != this->horizontal_swing_state_) {
         this->horizontal_vane_select_->publish_state(
-            this->horizontal_swing_state_);  // Set current horizontal swing
-                                             // position
+            this->horizontal_swing_state_);
     }
 }
 
 void MitsubishiHeatPump::update_swing_vertical(const std::string &swing) {
     this->vertical_swing_state_ = swing;
 
+    // FIX ESPHome 2026.x: select->state est deprecated, utiliser current_option()
     if (this->vertical_vane_select_ != nullptr &&
-        this->vertical_vane_select_->state != this->vertical_swing_state_) {
+        this->vertical_vane_select_->current_option() != this->vertical_swing_state_) {
         this->vertical_vane_select_->publish_state(
-            this->vertical_swing_state_);  // Set current vertical swing position
+            this->vertical_swing_state_);
     }
 }
 
 void MitsubishiHeatPump::set_vertical_vane_select(
     select::Select *vertical_vane_select) {
     this->vertical_vane_select_ = vertical_vane_select;
+    // FIX ESPHome 2026.x: signature callback changée de (string, size_t) à (string)
     this->vertical_vane_select_->add_on_state_callback(
-        [this](const std::string &value, size_t index) {
+        [this](const std::string &value) {
             if (value == this->vertical_swing_state_) return;
             this->on_vertical_swing_change(value);
         });
@@ -157,8 +167,9 @@ void MitsubishiHeatPump::set_vertical_vane_select(
 void MitsubishiHeatPump::set_horizontal_vane_select(
     select::Select *horizontal_vane_select) {
       this->horizontal_vane_select_ = horizontal_vane_select;
+      // FIX ESPHome 2026.x: signature callback changée de (string, size_t) à (string)
       this->horizontal_vane_select_->add_on_state_callback(
-          [this](const std::string &value, size_t index) {
+          [this](const std::string &value) {
               if (value == this->horizontal_swing_state_) return;
               this->on_horizontal_swing_change(value);
           });
@@ -190,7 +201,7 @@ void MitsubishiHeatPump::on_vertical_swing_change(const std::string &swing) {
         hp->setVaneSetting("5");
         updated = true;
     } else {
-        ESP_LOGW(TAG, "Invalid vertical vane position %s", swing);
+        ESP_LOGW(TAG, "Invalid vertical vane position %s", swing.c_str());
     }
 
     ESP_LOGD(TAG, "Vertical vane - Was HeatPump updated? %s", YESNO(updated));
@@ -225,7 +236,7 @@ void MitsubishiHeatPump::on_horizontal_swing_change(const std::string &swing) {
         hp->setWideVaneSetting(">>");
         updated = true;
     } else {
-        ESP_LOGW(TAG, "Invalid horizontal vane position %s", swing);
+        ESP_LOGW(TAG, "Invalid horizontal vane position %s", swing.c_str());
     }
 
     ESP_LOGD(TAG, "Horizontal vane - Was HeatPump updated? %s", YESNO(updated));
@@ -250,18 +261,6 @@ void MitsubishiHeatPump::control(const climate::ClimateCall &call) {
     }
 
     if (last_remote_temperature_sensor_update_.has_value()) {
-        // Some remote temperature sensors will only issue updates when a change
-        // in temperature occurs. 
-
-        // Assume a case where the idle sensor timeout is 12hrs and operating 
-        // timeout is 1hr. If the user changes the HP setpoint after 1.5hrs, the
-        // machine will switch to operating mode, the remote temperature 
-        // reading will expire and the HP will revert to it's internal 
-        // temperature sensor.
-
-        // This change ensures that if the user changes the machine setpoint,
-        // the remote sensor has an opportunity to issue an update to reflect
-        // the new change in temperature.
         last_remote_temperature_sensor_update_ =
             std::chrono::steady_clock::now();
     }
@@ -345,7 +344,8 @@ void MitsubishiHeatPump::control(const climate::ClimateCall &call) {
         ESP_LOGV("control", "Requested fan mode is %s",
                  climate::climate_fan_mode_to_string(*call.get_fan_mode()));
         this->fan_mode = *call.get_fan_mode();
-        switch(*call.get_fan_mode()) {
+        // FIX ESPHome 2026.x: utiliser .value() avec cast explicite plutôt que value_or(int)
+        switch(call.get_fan_mode().value()) {
             case climate::CLIMATE_FAN_OFF:
                 hp->setPowerSetting("OFF");
                 updated = true;
@@ -379,7 +379,6 @@ void MitsubishiHeatPump::control(const climate::ClimateCall &call) {
         }
     }
 
-
     ESP_LOGV(TAG, "in the swing mode stage");
     //const char* VANE_MAP[7]        = {"AUTO", "1", "2", "3", "4", "5", "SWING"};
     if (call.get_swing_mode().has_value()) {
@@ -410,7 +409,6 @@ void MitsubishiHeatPump::control(const climate::ClimateCall &call) {
                 break;
             default:
                 ESP_LOGW(TAG, "control - received unsupported swing mode request.");
-
         }
     }
     ESP_LOGD(TAG, "control - Was HeatPump updated? %s", YESNO(updated));
@@ -425,24 +423,11 @@ void MitsubishiHeatPump::hpSettingsChanged() {
     heatpumpSettings currentSettings = hp->getSettings();
 
     if (currentSettings.power == NULL) {
-        /*
-         * We should always get a valid pointer here once the HeatPump
-         * component fully initializes. If HeatPump hasn't read the settings
-         * from the unit yet (hp->connect() doesn't do this, sadly), we'll need
-         * to punt on the update. Likely not an issue when run in callback
-         * mode, but that isn't working right yet.
-         */
         ESP_LOGW(TAG, "Waiting for HeatPump to read the settings the first time.");
         esphome::delay(10);
         return;
     }
 
-    /*
-     * ************ HANDLE POWER AND MODE CHANGES ***********
-     * https://github.com/geoffdavis/HeatPump/blob/stream/src/HeatPump.h#L125
-     * const char* POWER_MAP[2]       = {"OFF", "ON"};
-     * const char* MODE_MAP[5]        = {"HEAT", "DRY", "COOL", "FAN", "AUTO"};
-     */
     if (strcmp(currentSettings.power, "ON") == 0) {
         if (strcmp(currentSettings.mode, "HEAT") == 0) {
             this->mode = climate::CLIMATE_MODE_HEAT;
@@ -485,11 +470,6 @@ void MitsubishiHeatPump::hpSettingsChanged() {
 
     ESP_LOGI(TAG, "Climate mode is: %i", this->mode);
 
-    /*
-     * ******* HANDLE FAN CHANGES ********
-     *
-     * const char* FAN_MAP[6]         = {"AUTO", "QUIET", "1", "2", "3", "4"};
-     */
     if (strcmp(currentSettings.fan, "QUIET") == 0) {
         this->fan_mode = climate::CLIMATE_FAN_DIFFUSE;
     } else if (strcmp(currentSettings.fan, "1") == 0) {
@@ -500,14 +480,18 @@ void MitsubishiHeatPump::hpSettingsChanged() {
             this->fan_mode = climate::CLIMATE_FAN_MIDDLE;
     } else if (strcmp(currentSettings.fan, "4") == 0) {
             this->fan_mode = climate::CLIMATE_FAN_HIGH;
-    } else { //case "AUTO" or default:
+    } else {
         this->fan_mode = climate::CLIMATE_FAN_AUTO;
     }
-    ESP_LOGI(TAG, "Fan mode is: %i", this->fan_mode.value_or(-1));
 
-    /* ******** HANDLE MITSUBISHI VANE CHANGES ********
-     * const char* VANE_MAP[7]        = {"AUTO", "1", "2", "3", "4", "5", "SWING"};
-     */
+    // FIX ESPHome 2026.x: value_or(int) ne fonctionne plus avec optional<enum>
+    // utiliser has_value() + static_cast
+    if (this->fan_mode.has_value()) {
+        ESP_LOGI(TAG, "Fan mode is: %i", static_cast<int>(this->fan_mode.value()));
+    } else {
+        ESP_LOGI(TAG, "Fan mode is: not set");
+    }
+
     if (strcmp(currentSettings.vane, "SWING") == 0 &&
         strcmp(currentSettings.wideVane, "SWING") == 0) {
         this->swing_mode = climate::CLIMATE_SWING_BOTH;
@@ -519,6 +503,7 @@ void MitsubishiHeatPump::hpSettingsChanged() {
         this->swing_mode = climate::CLIMATE_SWING_OFF;
     }
     ESP_LOGI(TAG, "Swing mode is: %i", this->swing_mode);
+
     if (strcmp(currentSettings.vane, "SWING") == 0) {
         this->update_swing_vertical("swing");
     } else if (strcmp(currentSettings.vane, "AUTO") == 0) {
@@ -555,15 +540,9 @@ void MitsubishiHeatPump::hpSettingsChanged() {
 
     ESP_LOGI(TAG, "Horizontal vane mode is: %s", currentSettings.wideVane);
 
-    /*
-     * ******** HANDLE TARGET TEMPERATURE CHANGES ********
-     */
     this->target_temperature = currentSettings.temperature;
     ESP_LOGI(TAG, "Target temp is: %f", this->target_temperature);
 
-    /*
-     * ******** Publish state back to ESPHome. ********
-     */
     this->publish_state();
 }
 
@@ -714,12 +693,14 @@ void MitsubishiHeatPump::setup() {
     hp->setPacketCallback(this->log_packet);    
 #endif
 
+    // FIX ESPHome 2026.x: &Serial n'est plus déclaré dans ce scope sur ESP8266
+    // avec le nouveau framework Arduino. Utiliser &Serial0 à la place.
     ESP_LOGCONFIG(
             TAG,
-            "hw_serial(%p) is &Serial(%p)? %s",
+            "hw_serial(%p) is &Serial0(%p)? %s",
             this->get_hw_serial_(),
-            &Serial,
-            YESNO((void *)this->get_hw_serial_() == (void *)&Serial)
+            &Serial0,
+            YESNO((void *)this->get_hw_serial_() == (void *)&Serial0)
     );
 
     ESP_LOGCONFIG(TAG, "Calling hp->connect(%p)", this->get_hw_serial_());
@@ -748,11 +729,6 @@ void MitsubishiHeatPump::setup() {
     this->dump_config();
 }
 
-/**
- * The ESP only has a few bytes of rtc storage, so instead
- * of storing floats directly, we'll store the number of
- * TEMPERATURE_STEPs from MIN_TEMPERATURE.
- **/
 void MitsubishiHeatPump::save(float value, ESPPreferenceObject& storage) {
     uint8_t steps = (value - ESPMHP_MIN_TEMPERATURE) / ESPMHP_TEMPERATURE_STEP;
     storage.save(&steps);
