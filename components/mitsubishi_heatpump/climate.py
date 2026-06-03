@@ -1,7 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import climate, select
-from esphome.components.logger import HARDWARE_UART_TO_SERIAL
 from esphome.const import (
     CONF_ID,
     CONF_HARDWARE_UART,
@@ -14,7 +13,24 @@ from esphome.const import (
     CONF_SWING_MODE,
     PLATFORM_ESP8266
 )
-from esphome.core import CORE, coroutine
+from esphome.core import CORE
+
+# FIX ESPHome 2026.x: coroutine est supprimé, utiliser async def
+# FIX ESPHome 2024.6+: HARDWARE_UART_TO_SERIAL est maintenant imbriqué par plateforme
+# On tente l'import et on gère les deux cas
+try:
+    from esphome.components.logger import HARDWARE_UART_TO_SERIAL as _UART_MAP
+    # Vérifier si la map est plate (ancienne) ou imbriquée par plateforme (nouvelle)
+    _first_val = next(iter(_UART_MAP.values()))
+    if isinstance(_first_val, dict):
+        # Nouvelle structure imbriquée : {PLATFORM_ESP8266: {"UART0": "Serial", ...}}
+        UART_MAP_ESP8266 = _UART_MAP.get(PLATFORM_ESP8266, _UART_MAP.get("ESP8266", {}))
+    else:
+        # Ancienne structure plate : {"UART0": "Serial", ...}
+        UART_MAP_ESP8266 = _UART_MAP
+except (ImportError, AttributeError, StopIteration):
+    # Fallback hardcodé si l'import échoue complètement
+    UART_MAP_ESP8266 = {"UART0": "Serial", "UART1": "Serial1"}
 
 AUTO_LOAD = ["climate", "select"]
 
@@ -96,9 +112,10 @@ CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend(
 ).extend(cv.COMPONENT_SCHEMA)
 
 
-@coroutine
-def to_code(config):
-    serial = HARDWARE_UART_TO_SERIAL[PLATFORM_ESP8266][config[CONF_HARDWARE_UART]]
+# FIX ESPHome 2026.x: coroutine + yield remplacés par async def + await
+async def to_code(config):
+    # FIX: utiliser UART_MAP_ESP8266 résolu à l'import ci-dessus
+    serial = UART_MAP_ESP8266[config[CONF_HARDWARE_UART]]
     var = cg.new_Pvariable(config[CONF_ID], cg.RawExpression(f"&{serial}"))
 
     if CONF_BAUD_RATE in config:
@@ -119,7 +136,6 @@ def to_code(config):
     if CONF_REMOTE_PING_TIMEOUT in config:
         cg.add(var.set_remote_ping_timeout_minutes(config[CONF_REMOTE_PING_TIMEOUT]))
 
-
     supports = config[CONF_SUPPORTS]
     traits = var.config_traits()
 
@@ -138,20 +154,20 @@ def to_code(config):
 
     if CONF_HORIZONTAL_SWING_SELECT in config:
         conf = config[CONF_HORIZONTAL_SWING_SELECT]
-        swing_select = yield select.new_select(conf, options=HORIZONTAL_SWING_OPTIONS)
-        yield cg.register_component(swing_select, conf)
+        swing_select = await select.new_select(conf, options=HORIZONTAL_SWING_OPTIONS)
+        await cg.register_component(swing_select, conf)
         cg.add(var.set_horizontal_vane_select(swing_select))
 
     if CONF_VERTICAL_SWING_SELECT in config:
         conf = config[CONF_VERTICAL_SWING_SELECT]
-        swing_select = yield select.new_select(conf, options=VERTICAL_SWING_OPTIONS)
-        yield cg.register_component(swing_select, conf)
+        swing_select = await select.new_select(conf, options=VERTICAL_SWING_OPTIONS)
+        await cg.register_component(swing_select, conf)
         cg.add(var.set_vertical_vane_select(swing_select))
 
-    yield cg.register_component(var, config)
-    yield climate.register_climate(var, config)
+    await cg.register_component(var, config)
+    await climate.register_climate(var, config)
     cg.add_library(
         name="HeatPump",
         repository="https://github.com/SwiCago/HeatPump#5d1e146771d2f458907a855bf9d5d4b9bf5ff033",
-        version=None, # this appears to be ignored?
+        version=None,
     )
